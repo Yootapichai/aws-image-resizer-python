@@ -1,0 +1,66 @@
+service: aws-image-resizer-python
+
+plugins:
+  - serverless-python-requirements
+  - "@serverless-aws/serverless-s3-remover"
+
+provider:
+  name: aws
+  runtime: python3.9
+  region: us-east-1
+  environment:
+    RESIZED_BUCKET: ${self:custom.resizedBucket}
+    DYNAMO_TABLE: ${self:custom.dynamoTable}
+  iam:
+    role:
+      statements:
+        - Effect: "Allow"
+          Action:
+            - "s3:GetObject"
+          Resource: "arn:aws:s3:::${self:custom.originalBucket}/*"
+        - Effect: "Allow"
+          Action:
+            - "s3:PutObject"
+          Resource: "arn:aws:s3:::${self:custom.resizedBucket}/*"
+        - Effect: "Allow"
+          Action:
+            - "dynamodb:PutItem"
+          Resource: "arn:aws:dynamodb:${self:provider.region}:*:table/${self:custom.dynamoTable}"
+
+functions:
+  imageResizeHandler:
+    handler: handler.resize
+    events:
+      - s3:
+          bucket: ${self:custom.originalBucket}
+          event: s3:ObjectCreated:*
+
+custom:
+  originalBucket: ${self:service}-original-images-${sls:stage}
+  resizedBucket: ${self:service}-resized-images-${sls:stage}
+  dynamoTable: ${self:service}-image-metadata-${sls:stage}
+  pythonRequirements:
+    dockerizePip: true
+  remover:
+    buckets:
+      - ${self:custom.originalBucket}
+      - ${self:custom.resizedBucket}
+    verbose: true
+
+resources:
+  Resources:
+    ResizedImagesBucket:
+      Type: AWS::S3::Bucket
+      Properties:
+        BucketName: ${self:custom.resizedBucket}
+    ImageMetadataDynamoDBTable:
+      Type: AWS::DynamoDB::Table
+      Properties:
+        TableName: ${self:custom.dynamoTable}
+        AttributeDefinitions:
+          - AttributeName: id
+            AttributeType: S
+        KeySchema:
+          - AttributeName: id
+            KeyType: HASH
+        BillingMode: PAY_PER_REQUEST
